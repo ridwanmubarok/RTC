@@ -8,6 +8,20 @@ const server = http.createServer(app);
 const io = socketIO(server);
 const port = process.env.PORT || 3000;
 
+// Middleware untuk mengatasi CORS
+app.use((req, res, next) => {
+  const allowedOrigins = ['https://amubhya.test', 'https://katakreasi.com'];
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Access-Control-Allow-Methods', 'GET,POST');
+  res.header(
+    'Access-Control-Allow-Headers',
+    'Origin, X-Requested-With, Content-Type, Accept'
+  );
+  next();
+});
 
 // Objek untuk menyimpan informasi tentang setiap ruang (room)
 const rooms = {};
