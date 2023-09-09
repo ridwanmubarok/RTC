@@ -45,17 +45,41 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Event untuk bergabung ke ruang (room) baru
+  // Event untuk bergabung ke ruang (room) atau membuat baru jika belum ada
   socket.on('join-room', (roomName) => {
-    socket.join(roomName);
-    socket.room = roomName;
-
-    // Membuat objek set (untuk menghindari duplikat) untuk setiap ruang
     if (!rooms[roomName]) {
+      // Jika ruang belum ada, maka buat ruang baru
       rooms[roomName] = new Set();
+      socket.join(roomName);
+      socket.room = roomName;
+      rooms[roomName].add(socket.id);
+      socket.emit('room-joined', roomName);
+    } else if (rooms[roomName].size < 2) {
+      // Jika ruang kurang dari 2 pengguna, pengguna dapat bergabung
+      socket.join(roomName);
+      socket.room = roomName;
+      rooms[roomName].add(socket.id);
+      socket.emit('room-joined', roomName);
+    } else {
+      // Jika ruang sudah penuh, coba cari atau buat ruang baru
+      let newRoomName = roomName;
+      let roomNumber = 2;
+      while (rooms[newRoomName] && rooms[newRoomName].size >= 2) {
+        newRoomName = roomName + roomNumber;
+        roomNumber++;
+      }
+    
+      // Jika ditemukan atau dibuat ruang baru, pengguna dapat bergabung
+      if (!rooms[newRoomName]) {
+        rooms[newRoomName] = new Set();
+      }
+      socket.join(newRoomName);
+      socket.room = newRoomName;
+      rooms[newRoomName].add(socket.id);
+      socket.emit('room-joined', newRoomName);
     }
-    rooms[roomName].add(socket.id);
   });
+
 
   // Handle event untuk memulai panggilan video
   socket.on('start-call', (targetSocketId) => {
