@@ -108,5 +108,5 @@ io.on('connection', (socket) => {
 
 // Mulai server Express
 server.listen(port, () => {
-  console.log(`Server berjalan di http://localhost:${port}`);
+  console.log(`Server berjalan di https://rtc.katakreasi.com:${port}`);
 });
