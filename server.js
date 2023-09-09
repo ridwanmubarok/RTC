@@ -5,7 +5,12 @@ const SimplePeer = require('simple-peer');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIO(server);
+const io = socketIO(server, {
+  cors: {
+    origin: ['https://amubhya.test', 'https://katakreasi.com'],
+    methods: ["GET", "POST"]
+  }
+});
 const port = process.env.PORT || 3000;
 
 // Middleware untuk mengatasi CORS
