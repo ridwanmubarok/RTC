@@ -35,6 +35,9 @@ const rooms = {};
 io.on('connection', (socket) => {
   console.log('Klien terhubung');
 
+  // Tambahkan properti untuk melacak apakah pengguna sudah memulai panggilan
+  socket.isInCall = false;
+
   socket.on('disconnect', () => {
     console.log('Klien terputus');
     
@@ -78,64 +81,76 @@ io.on('connection', (socket) => {
       rooms[newRoomName].add(socket.id);
       socket.emit('room-joined', newRoomName);
     }
+    
+    // Jika sudah ada 2 pengguna di ruang ini, dan pengguna ini belum memulai panggilan, maka mulailah panggilan
+    if (rooms[roomName] && rooms[roomName].size === 2 && !socket.isInCall) {
+      socket.isInCall = true;
+      startCallInRoom(roomName);
+    }
   });
 
+  // Fungsi untuk memulai panggilan di ruang tertentu
+  function startCallInRoom(roomName) {
+    const room = io.sockets.adapter.rooms[roomName];
+    if (room && room.size === 2) {
+      let targetSocketId;
+      room.forEach((socketId) => {
+        if (socketId !== socket.id) {
+          targetSocketId = socketId;
+        }
+      });
 
-  // Handle event untuk memulai panggilan video
-  socket.on('start-call', (targetSocketId) => {
-    const room = socket.room;
+      if (targetSocketId) {
+        // Buat instance simple-peer untuk inisiasi panggilan
+        const initiatorPeer = new SimplePeer({ initiator: true });
+        const targetPeer = new SimplePeer();
 
-    if (!room || !rooms[room]) {
-      socket.emit('room-not-found');
-      return;
+        // Kirim offer dari initiator ke target
+        initiatorPeer.on('signal', (offer) => {
+          io.to(targetSocketId).emit('offer', offer);
+        });
+
+        // Kirim answer dari target ke initiator
+        targetPeer.on('signal', (answer) => {
+          socket.emit('answer', answer);
+        });
+
+        // Terima stream video dari initiator dan kirimkan ke target
+        initiatorPeer.on('stream', (stream) => {
+          io.to(targetSocketId).emit('stream', stream);
+        });
+
+        // Terima stream video dari target dan kirimkan ke initiator
+        targetPeer.on('stream', (stream) => {
+          socket.emit('stream', stream);
+        });
+
+        // Terima sinyal offer dari target
+        socket.on('offer', (offer) => {
+          targetPeer.signal(offer);
+        });
+
+        // Terima sinyal answer dari initiator
+        socket.on('answer', (answer) => {
+          initiatorPeer.signal(answer);
+        });
+      }
     }
-
-    const targetSocket = Array.from(rooms[room]).find(
-      (id) => id === targetSocketId
-    );
-
-    if (!targetSocket) {
-      socket.emit('user-not-found');
-      return;
-    }
-
-    // Buat instance simple-peer untuk inisiasi panggilan
-    const initiatorPeer = new SimplePeer({ initiator: true });
-    const targetPeer = new SimplePeer();
-
-    // Kirim offer dari initiator ke target
-    initiatorPeer.on('signal', (offer) => {
-      io.to(targetSocket).emit('offer', offer);
-    });
-
-    // Kirim answer dari target ke initiator
-    targetPeer.on('signal', (answer) => {
-      socket.emit('answer', answer);
-    });
-
-    // Terima stream video dari initiator dan kirimkan ke target
-    initiatorPeer.on('stream', (stream) => {
-      io.to(targetSocket).emit('stream', stream);
-    });
-
-    // Terima stream video dari target dan kirimkan ke initiator
-    targetPeer.on('stream', (stream) => {
-      socket.emit('stream', stream);
-    });
-
-    // Terima sinyal offer dari target
-    socket.on('offer', (offer) => {
-      targetPeer.signal(offer);
-    });
-
-    // Terima sinyal answer dari initiator
-    socket.on('answer', (answer) => {
-      initiatorPeer.signal(answer);
-    });
-  });
+  }
 });
 
 // Mulai server Express
 server.listen(port, () => {
   console.log(`Server berjalan di https://rtc.katakreasi.com:${port}`);
+});
+
+
+//routing
+app.get('/api/rooms', (req, res) => {
+  const roomList = [];
+  for (const roomName in rooms) {
+    const participantCount = rooms[roomName].size;
+    roomList.push({ name: roomName, participant: participantCount });
+  }
+  res.json(roomList);
 });
