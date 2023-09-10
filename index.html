@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Conference</title>
+  <style>
+    /* Tambahkan CSS sesuai kebutuhan Anda */
+  </style>
+</head>
+<body>
+  <h1>Video Conference</h1>
+  
+  <!-- Video pemutaran lokal -->
+  <video id="localVideo" autoplay></video>
+  
+  <!-- Video pemutaran remote -->
+  <div id="remoteVideos"></div>
+
+  <!-- Form untuk mengirim pesan -->
+  <input type="text" id="messageInput" placeholder="Ketik pesan...">
+  <button onclick="sendMessage()">Kirim</button>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+  <script>
+    const socket = io('http://localhost:3000'); // Menghubungkan ke server Socket.io
+
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideos = document.getElementById('remoteVideos');
+    const messageInput = document.getElementById('messageInput');
+
+    // Mendapatkan akses ke kamera dan mikrofon lokal
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        localVideo.srcObject = stream;
+
+        // Mengirim stream video ke server
+        const roomName = 'room123'; // Ganti dengan nama ruang yang sesuai
+        socket.emit('join-room', roomName);
+      })
+      .catch((error) => {
+        console.error('Error accessing media devices:', error);
+      });
+
+    // Mengirim pesan ke server
+    function sendMessage() {
+      const message = messageInput.value;
+      socket.emit('message', message);
+      messageInput.value = '';
+    }
+
+    // Menerima pesan dari server
+    socket.on('message', (message) => {
+      // Menampilkan pesan di antarmuka
+      console.log('Received message:', message);
+    });
+
+    // Menampilkan video remote dari pengguna lain
+    socket.on('user-connected', (userId) => {
+      const remoteVideo = document.createElement('video');
+      remoteVideo.autoplay = true;
+      remoteVideo.setAttribute('data-user-id', userId);
+      remoteVideos.appendChild(remoteVideo);
+
+      const peerConnection = new RTCPeerConnection();
+      const localStream = localVideo.srcObject;
+
+      // Menambahkan trek video lokal ke koneksi peer
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+      // Menerima video dari pengguna lain
+      peerConnection.ontrack = (event) => {
+        const remoteStream = event.streams[0];
+        remoteVideo.srcObject = remoteStream;
+      };
+
+      // Membuat tawaran (offer) untuk menginisiasi koneksi peer-to-peer
+      peerConnection.createOffer()
+        .then(offer => peerConnection.setLocalDescription(offer))
+        .then(() => {
+          // Mengirim tawaran ke pengguna lain melalui server
+          socket.emit('offer', { userId, offer });
+        });
+    });
+
+    // Menerima tawaran dari pengguna lain
+    socket.on('offer', ({ userId, offer }) => {
+      // Menambahkan trek video lokal ke koneksi peer
+      const peerConnection = new RTCPeerConnection();
+      const localStream = localVideo.srcObject;
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+      // Mengatur deskripsi eksternal sebagai tawaran yang diterima
+      peerConnection.setRemoteDescription(offer)
+        .then(() => peerConnection.createAnswer())
+        .then(answer => peerConnection.setLocalDescription(answer))
+        .then(() => {
+          // Mengirim jawaban (answer) ke pengguna lain melalui server
+          socket.emit('answer', { userId, answer });
+        });
+    });
+
+    // Menerima jawaban dari pengguna lain
+    socket.on('answer', ({ userId, answer }) => {
+      // Mengatur deskripsi eksternal sebagai jawaban yang diterima
+      const peerConnection = getPeerConnection(userId);
+      if (peerConnection) {
+        peerConnection.setRemoteDescription(answer);
+      }
+    });
+
+    // Menerima sinyal ICE (Interactive Connectivity Establishment) dari pengguna lain
+    socket.on('ice-candidate', ({ userId, candidate }) => {
+      // Menambahkan sinyal ICE ke koneksi peer
+      const peerConnection = getPeerConnection(userId);
+      if (peerConnection) {
+        peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    });
+
+    // Menerima pengguna yang terputus
+    socket.on('user-disconnected', (userId) => {
+      // Menghapus video remote dari pengguna yang terputus
+      const remoteVideo = remoteVideos.querySelector(`[data-user-id="${userId}"]`);
+      if (remoteVideo) {
+        remoteVideo.srcObject = null;
+        remoteVideo.remove();
+      }
+
+      // Menghapus koneksi peer yang terputus
+      deletePeerConnection(userId);
+    });
+
+    // Fungsi untuk mendapatkan koneksi peer berdasarkan ID pengguna
+    function getPeerConnection(userId) {
+      return peerConnections[userId];
+    }
+
+    // Fungsi untuk menghapus koneksi peer berdasarkan ID pengguna
+    function deletePeerConnection(userId) {
+      delete peerConnections[userId];
+    }
+
+    // Objek untuk menyimpan koneksi peer berdasarkan ID pengguna
+    const peerConnections = {};
+  </script>
+</body>
+</html>
