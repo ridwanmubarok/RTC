@@ -13,23 +13,58 @@ const io = socketIO(server, {
 });
 const port = process.env.PORT || 3000;
 
-// Middleware untuk mengatasi CORS
-app.use((req, res, next) => {
-  const allowedOrigins = ['https://amubhya.test', 'https://katakreasi.com'];
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Methods', 'GET,POST');
-  res.header(
-    'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept'
-  );
-  next();
-});
+// Middleware untuk mengatasi CORS - Hapus middleware ini jika Anda telah mengkonfigurasi CORS di socket.io
+// app.use((req, res, next) => {
+//   const allowedOrigins = ['https://amubhya.test', 'https://katakreasi.com'];
+//   const origin = req.headers.origin;
+//   if (allowedOrigins.includes(origin)) {
+//     res.header('Access-Control-Allow-Origin', origin);
+//   }
+//   res.header('Access-Control-Allow-Methods', 'GET,POST');
+//   res.header(
+//     'Access-Control-Allow-Headers',
+//     'Origin, X-Requested-With, Content-Type, Accept'
+//   );
+//   next();
+// });
 
 // Objek untuk menyimpan informasi tentang setiap ruang (room)
 const rooms = {};
+
+// Penanganan WebRTC Peer
+function startCallInRoom(roomName, socket) {
+  const peer = new SimplePeer({ initiator: true }); // Penginisiasi panggilan
+
+  peer.on('signal', (data) => {
+    // Kirim sinyal ke klien lain
+    socket.to(roomName).emit('signal', data);
+  });
+
+  peer.on('stream', (stream) => {
+    // Kirim stream video ke klien lain
+    socket.to(roomName).emit('stream', stream);
+  });
+
+  // Koneksi ke sinyal masuk dari klien lain
+  socket.on('signal', (data) => {
+    peer.signal(data);
+  });
+
+  // Menerima panggilan dari klien lain
+  socket.on('call', () => {
+    if (!socket.isInCall) {
+      socket.isInCall = true;
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          peer.addStream(stream); // Tambahkan stream ke peer
+          socket.emit('stream', stream); // Kirim stream video Anda sendiri
+        })
+        .catch((error) => {
+          console.error('Error accessing media devices:', error);
+        });
+    }
+  });
+}
 
 // Atur socket.io
 io.on('connection', (socket) => {
@@ -85,58 +120,9 @@ io.on('connection', (socket) => {
     // Jika sudah ada 2 pengguna di ruang ini, dan pengguna ini belum memulai panggilan, maka mulailah panggilan
     if (rooms[roomName] && rooms[roomName].size === 2 && !socket.isInCall) {
       socket.isInCall = true;
-      startCallInRoom(roomName);
+      startCallInRoom(roomName, socket);
     }
   });
-
-  // Fungsi untuk memulai panggilan di ruang tertentu
-  function startCallInRoom(roomName) {
-    const room = io.sockets.adapter.rooms[roomName];
-    if (room && room.size === 2) {
-      let targetSocketId;
-      room.forEach((socketId) => {
-        if (socketId !== socket.id) {
-          targetSocketId = socketId;
-        }
-      });
-
-      if (targetSocketId) {
-        // Buat instance simple-peer untuk inisiasi panggilan
-        const initiatorPeer = new SimplePeer({ initiator: true });
-        const targetPeer = new SimplePeer();
-
-        // Kirim offer dari initiator ke target
-        initiatorPeer.on('signal', (offer) => {
-          io.to(targetSocketId).emit('offer', offer);
-        });
-
-        // Kirim answer dari target ke initiator
-        targetPeer.on('signal', (answer) => {
-          socket.emit('answer', answer);
-        });
-
-        // Terima stream video dari initiator dan kirimkan ke target
-        initiatorPeer.on('stream', (stream) => {
-          io.to(targetSocketId).emit('stream', stream);
-        });
-
-        // Terima stream video dari target dan kirimkan ke initiator
-        targetPeer.on('stream', (stream) => {
-          socket.emit('stream', stream);
-        });
-
-        // Terima sinyal offer dari target
-        socket.on('offer', (offer) => {
-          targetPeer.signal(offer);
-        });
-
-        // Terima sinyal answer dari initiator
-        socket.on('answer', (answer) => {
-          initiatorPeer.signal(answer);
-        });
-      }
-    }
-  }
 });
 
 // Mulai server Express
@@ -145,7 +131,7 @@ server.listen(port, () => {
 });
 
 
-//routing
+// Routing untuk mendapatkan daftar ruang yang ada
 app.get('/api/rooms', (req, res) => {
   const roomList = [];
   for (const roomName in rooms) {
