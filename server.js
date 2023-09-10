@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const socketIO = require('socket.io');
 const SimplePeer = require('simple-peer');
-const { RTCPeerConnection, RTCSessionDescription } = require('wrtc'); // Import node-webrtc
+const wrtc = require('wrtc'); // Import modul wrtc untuk mendukung WebRTC di server-side
 
 const app = express();
 const server = http.createServer(app);
@@ -14,6 +14,7 @@ const io = socketIO(server, {
 });
 const port = process.env.PORT || 3000;
 
+// Middleware untuk mengatasi CORS - Hapus middleware ini jika Anda telah mengkonfigurasi CORS di socket.io
 app.use((req, res, next) => {
   const allowedOrigins = ['https://amubhya.test', 'https://katakreasi.com'];
   const origin = req.headers.origin;
@@ -28,67 +29,86 @@ app.use((req, res, next) => {
   next();
 });
 
+// Objek untuk menyimpan informasi tentang setiap ruang (room)
 const rooms = {};
 
+// Penanganan WebRTC Peer
 function startCallInRoom(roomName, socket) {
-  const peer = new SimplePeer({ initiator: true, wrtc: RTCPeerConnection }); // Use RTCPeerConnection from node-webrtc
+  const peer = new SimplePeer({ initiator: true, wrtc: wrtc }); // Penginisiasi panggilan dengan wrtc
 
   peer.on('signal', (data) => {
+    // Kirim sinyal ke klien lain
     socket.to(roomName).emit('signal', data);
   });
 
   peer.on('stream', (stream) => {
+    // Kirim stream video ke klien lain
     socket.to(roomName).emit('stream', stream);
   });
 
+  // Koneksi ke sinyal masuk dari klien lain
   socket.on('signal', (data) => {
     peer.signal(data);
   });
 
+  // Menerima panggilan dari klien lain
   socket.on('call', () => {
     if (!socket.isInCall) {
       socket.isInCall = true;
-      // You may need to adapt this part to capture audio/video from server-side sources
-      const mediaStream = new MediaStream(); // Create an empty MediaStream
-      const audioTrack = mediaStream.addTrack(peer.addTrack(RTCAudioTrack)); // Add an audio track
-      const videoTrack = mediaStream.addTrack(peer.addTrack(RTCVideoTrack)); // Add a video track
-      socket.emit('stream', mediaStream);
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          peer.addStream(stream); // Tambahkan stream ke peer
+          socket.emit('stream', stream); // Kirim stream video Anda sendiri
+        })
+        .catch((error) => {
+          console.error('Error accessing media devices:', error);
+        });
     }
   });
 }
 
+// Atur socket.io
 io.on('connection', (socket) => {
   console.log('Klien terhubung');
+
+  // Tambahkan properti untuk melacak apakah pengguna sudah memulai panggilan
   socket.isInCall = false;
 
   socket.on('disconnect', () => {
     console.log('Klien terputus');
+    
+    // Keluar dari ruang saat klien terputus
     const room = socket.room;
     if (room && rooms[room]) {
       rooms[room].delete(socket.id);
     }
   });
 
+  // Event untuk bergabung ke ruang (room) atau membuat baru jika belum ada
   socket.on('join-room', (roomName) => {
     if (!rooms[roomName]) {
+      // Jika ruang belum ada, maka buat ruang baru
       rooms[roomName] = new Set();
       socket.join(roomName);
       socket.room = roomName;
       rooms[roomName].add(socket.id);
       socket.emit('room-joined', roomName);
     } else if (rooms[roomName].size < 2) {
+      // Jika ruang kurang dari 2 pengguna, pengguna dapat bergabung
       socket.join(roomName);
       socket.room = roomName;
       rooms[roomName].add(socket.id);
       socket.emit('room-joined', roomName);
     } else {
+      // Jika ruang sudah penuh, coba cari atau buat ruang baru
       let newRoomName = roomName;
       let roomNumber = 2;
       while (rooms[newRoomName] && rooms[newRoomName].size >= 2) {
         newRoomName = roomName + roomNumber;
         roomNumber++;
       }
-
+    
+      // Jika ditemukan atau dibuat ruang baru, pengguna dapat bergabung
       if (!rooms[newRoomName]) {
         rooms[newRoomName] = new Set();
       }
@@ -97,7 +117,8 @@ io.on('connection', (socket) => {
       rooms[newRoomName].add(socket.id);
       socket.emit('room-joined', newRoomName);
     }
-
+    
+    // Jika sudah ada 2 pengguna di ruang ini, dan pengguna ini belum memulai panggilan, maka mulailah panggilan
     if (rooms[roomName] && rooms[roomName].size === 2 && !socket.isInCall) {
       socket.isInCall = true;
       startCallInRoom(roomName, socket);
@@ -105,10 +126,12 @@ io.on('connection', (socket) => {
   });
 });
 
+// Mulai server Express
 server.listen(port, () => {
   console.log(`Server berjalan di http://localhost:${port}`);
 });
 
+// Routing untuk mendapatkan daftar ruang yang ada
 app.get('/api/rooms', (req, res) => {
   const roomList = [];
   for (const roomName in rooms) {
