@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const socketIO = require('socket.io');
 const SimplePeer = require('simple-peer');
+const session = require('express-session'); // Import modul sesi
+
 
 const app = express();
 const server = http.createServer(app);
@@ -27,6 +29,14 @@ app.use((req, res, next) => {
   );
   next();
 });
+
+// Middleware untuk mengelola sesi
+app.use(session({
+  secret: 'BuYz3xiRsru2Hg0C91r1khmdbLeXWS2Z', // Ganti dengan kunci rahasia yang lebih aman
+  resave: false,
+  saveUninitialized: true,
+  cookie: { secure: true } // Atur menjadi true jika Anda menggunakan HTTPS
+}));
 
 // Objek untuk menyimpan informasi tentang setiap ruang (room)
 const rooms = {};
