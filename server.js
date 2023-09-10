@@ -4,7 +4,6 @@ const socketIO = require('socket.io');
 const SimplePeer = require('simple-peer');
 const session = require('express-session'); // Import modul sesi
 
-
 const app = express();
 const server = http.createServer(app);
 const io = socketIO(server, {
@@ -31,12 +30,20 @@ app.use((req, res, next) => {
 });
 
 // Middleware untuk mengelola sesi
-app.use(session({
+const sessionMiddleware = session({
   secret: 'BuYz3xiRsru2Hg0C91r1khmdbLeXWS2Z', // Ganti dengan kunci rahasia yang lebih aman
   resave: false,
   saveUninitialized: true,
   cookie: { secure: true } // Atur menjadi true jika Anda menggunakan HTTPS
-}));
+});
+
+// Tambahkan middleware sesi ke Express
+app.use(sessionMiddleware);
+
+// Gunakan middleware sesi untuk Socket.IO
+io.use((socket, next) => {
+  sessionMiddleware(socket.request, socket.request.res, next);
+});
 
 // Objek untuk menyimpan informasi tentang setiap ruang (room)
 const rooms = {};
@@ -139,7 +146,6 @@ io.on('connection', (socket) => {
 server.listen(port, () => {
   console.log(`Server berjalan di https://rtc.katakreasi.com:${port}`);
 });
-
 
 // Routing untuk mendapatkan daftar ruang yang ada
 app.get('/api/rooms', (req, res) => {
