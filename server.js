@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const socketIO = require('socket.io');
 const SimplePeer = require('simple-peer');
-const wrtc = require('wrtc'); // Import modul wrtc untuk mendukung WebRTC di server-side
 
 const app = express();
 const server = http.createServer(app);
@@ -34,7 +33,7 @@ const rooms = {};
 
 // Penanganan WebRTC Peer
 function startCallInRoom(roomName, socket) {
-  const peer = new SimplePeer({ initiator: true, wrtc: wrtc }); // Penginisiasi panggilan dengan wrtc
+  const peer = new SimplePeer({ initiator: true }); // Penginisiasi panggilan dengan wrtc
 
   peer.on('signal', (data) => {
     // Kirim sinyal ke klien lain
